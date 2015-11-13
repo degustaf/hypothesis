@@ -162,3 +162,9 @@ class AbnormalExit(HypothesisException):
 
     """Raised when a test running in a child process exits without returning or
     raising an exception."""
+
+
+class Frozen(HypothesisException):
+
+    """Raised when a mutation method has been called on a TestData object after
+    freeze() has been called."""
