@@ -116,6 +116,7 @@ class ListStrategy(SearchStrategy):
                     break
             result.append(data.draw(self.element_strategy))
             data.stop_example()
+        data.incur_cost(len(result))
         return result
 
     def __repr__(self):
