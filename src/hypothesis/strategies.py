@@ -621,7 +621,7 @@ def randoms():
 
 
 @defines_strategy
-def fractions():
+def fractions(min_value=None, max_value=None):
     """Generates instances of fractions.Fraction."""
     from fractions import Fraction
     return tuples(integers(), integers(min_value=1)).map(
