@@ -19,6 +19,7 @@ from __future__ import division, print_function, absolute_import
 import sys
 import math
 import struct
+from fractions import Fraction
 from collections import namedtuple
 
 import hypothesis.internal.distributions as dist
@@ -661,3 +662,40 @@ class ComplexStrategy(MappedSearchStrategy):
 
     def pack(self, value):
         return complex(*value)
+
+
+class FractionStrategy(SearchStrategy):
+
+    """Generic superclass for strategies which produce fractions."""
+
+    def __init__(self):
+        SearchStrategy.__init__(self)
+        self.int_strategy = RandomGeometricIntStrategy()
+
+    def __repr__(self):
+        return u'%s()' % (self.__class__.__name__,)
+
+    def strictly_simpler(self, x, y):
+        if x < 0 and y >= 0:
+            return false
+        if x == y:
+            return false
+        return x.numerator <= y.numerator and x.denominator <= y.denominator
+
+    def to_basic(self, value):
+        return [value.numerator, value.denominator]
+
+    def from_basic(self, value):
+        try:
+            return Fraction(value[0], value[1])
+        except ValueError:
+            raise BadData(u'Invalid fraction %r' % value)
+
+    def reify(self, value):
+        return value
+
+    def simplifiers(self, random, x):
+        pass
+
+    def basic_simplify(self, random, x):
+        pass
