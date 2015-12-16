@@ -23,21 +23,24 @@ import math
 import time
 import inspect
 import binascii
+import warnings
 import functools
 import traceback
+from random import getstate as getglobalrandomstate
 from random import Random
 from itertools import islice
 from collections import namedtuple
 
 from hypothesis.errors import Flaky, Timeout, NoSuchExample, \
-    Unsatisfiable, BadTemplateDraw, InvalidArgument, \
-    UnsatisfiedAssumption, DefinitelyNoSuchExample
+    Unsatisfiable, BadTemplateDraw, InvalidArgument, FailedHealthCheck, \
+    UnsatisfiedAssumption, DefinitelyNoSuchExample, \
+    HypothesisDeprecationWarning
 from hypothesis.control import BuildContext
 from hypothesis.settings import Settings, Verbosity, note_deprecation
-from hypothesis.executors import executor
+from hypothesis.executors import executor, default_executor
 from hypothesis.reporting import report, debug_report, verbose_report, \
     current_verbosity
-from hypothesis.internal.compat import qualname, getargspec, \
+from hypothesis.internal.compat import hrange, qualname, getargspec, \
     unicode_safe_repr
 from hypothesis.internal.tracker import Tracker
 from hypothesis.internal.reflection import arg_string, impersonate, \
@@ -194,6 +197,10 @@ def simplify_template_such_that(
     assert isinstance(random, Random)
 
     yield t
+
+    if settings.max_shrinks <= 0 or not f(t):
+        return
+
     successful_shrinks = 0
 
     changed = True
@@ -259,7 +266,7 @@ def simplify_template_such_that(
 
 def best_satisfying_template(
     search_strategy, random, condition, settings, storage, tracker=None,
-    max_parameter_tries=None,
+    max_parameter_tries=None, start_time=None,
 ):
     """Find and then minimize a satisfying template.
 
@@ -270,7 +277,8 @@ def best_satisfying_template(
     """
     if tracker is None:
         tracker = Tracker()
-    start_time = time.time()
+    if start_time is None:
+        start_time = time.time()
 
     successful_shrinks = -1
     with settings:
@@ -461,6 +469,10 @@ def given(*generator_arguments, **generator_kwargs):
         for k in extra_kwargs:
             unused_kwargs[k] = HypothesisProvided(generator_kwargs[k])
 
+        hypothesis_owned_arguments = [
+            argspec.args[-1 - i] for i in hrange(len(argspec.defaults))
+        ] + list(unused_kwargs)
+
         @impersonate(test)
         @copy_argspec(
             test.__name__, argspec
@@ -472,6 +484,21 @@ def given(*generator_arguments, **generator_kwargs):
             selfy = None
             arguments, kwargs = convert_positional_arguments(
                 wrapped_test, arguments, kwargs)
+
+            for arg in hypothesis_owned_arguments:
+                try:
+                    value = kwargs[arg]
+                except KeyError:
+                    continue
+                if not isinstance(value, HypothesisProvided):
+                    note_deprecation(
+                        'Passing in explicit values to override Hypothesis '
+                        'provided values is deprecated and will no longer '
+                        'work in Hypothesis 2.0. If you need to do this, '
+                        'extract a common function and call that from a '
+                        'Hypothesis based test.', settings
+                    )
+
             # Anything in unused_kwargs hasn't been injected through
             # argspec.defaults, so we need to add them.
             for k in unused_kwargs:
@@ -537,6 +564,16 @@ def given(*generator_arguments, **generator_kwargs):
                     (k, convert_to_specifier(v)) for (k, v) in kwargs.items()))
             )
 
+            def fail_health_check(message):
+                message += (
+                    '\nSee http://hypothesis.readthedocs.org/en/latest/health'
+                    'checks.html for more information about this.'
+                )
+                if settings.strict:
+                    raise FailedHealthCheck(message)
+                else:
+                    warnings.warn(FailedHealthCheck(message))
+
             search_strategy = strategy(given_specifier, settings)
             search_strategy.validate()
 
@@ -546,17 +583,118 @@ def given(*generator_arguments, **generator_kwargs):
             else:
                 storage = None
 
+            start = time.time()
+            warned_random = [False]
+            perform_health_check = settings.perform_health_check
+            if Settings.default is not None:
+                perform_health_check &= Settings.default.perform_health_check
+
+            if perform_health_check:
+                initial_state = getglobalrandomstate()
+                with Settings(settings, verbosity=Verbosity.quiet):
+                    count = 0
+                    bad_draws = 0
+                    filtered_draws = 0
+                    while (
+                        count < 10 and time.time() < start + 1 and
+                        filtered_draws < 50 and bad_draws < 50
+                    ):
+                        try:
+                            test_runner(reify_and_execute(
+                                search_strategy,
+                                search_strategy.draw_template(
+                                    random,
+                                    search_strategy.draw_parameter(random)),
+                                lambda *args, **kwargs: None,
+                            ))
+                            count += 1
+                        except BadTemplateDraw:
+                            bad_draws += 1
+                        except UnsatisfiedAssumption:
+                            filtered_draws += 1
+                        except Exception:
+                            traceback.print_exc()
+                            if test_runner is default_executor:
+                                fail_health_check(
+                                    'An exception occurred during data '
+                                    'generation in initial health check. '
+                                    'This indicates a bug in the strategy. '
+                                    'This could either be a Hypothesis bug or '
+                                    "an error in a function you've passed to "
+                                    'it to construct your data.'
+                                )
+                            else:
+                                fail_health_check(
+                                    'An exception occurred during data '
+                                    'generation in initial health check. '
+                                    'This indicates a bug in the strategy. '
+                                    'This could either be a Hypothesis bug or '
+                                    'an error in a function you\'ve passed to '
+                                    'it to construct your data. Additionally, '
+                                    'you have a custom executor, which means '
+                                    'that this could be your executor failing '
+                                    'to handle a function which returns None. '
+                                )
+                if filtered_draws >= 50:
+                    fail_health_check((
+                        'It looks like your strategy is filtering out a lot '
+                        'of data. Health check found %d filtered examples but '
+                        'only %d good ones. This will make your tests much '
+                        'slower, and also will probably distort the data '
+                        'generation quite a lot. You should adapt your '
+                        'strategy to filter less.') % (
+                        filtered_draws, count
+                    ))
+                if bad_draws >= 50:
+                    fail_health_check(
+                        'Hypothesis is struggling to generate examples. '
+                        'This is often a sign of a recursive strategy which '
+                        'fans out too broadly. If you\'re using recursive, '
+                        'try to reduce the size of the recursive step or '
+                        'increase the maximum permitted number of leaves.'
+                    )
+                runtime = time.time() - start
+                if runtime > 1.0 or count < 10:
+                    fail_health_check((
+                        'Data generation is extremely slow: Only produced '
+                        '%d valid examples in %.2f seconds. Try decreasing '
+                        "size of the data you're generating (with e.g."
+                        'average_size or max_leaves parameters).'
+                    ) % (count, runtime))
+                if getglobalrandomstate() != initial_state:
+                    warned_random[0] = True
+                    fail_health_check(
+                        'Data generation depends on global random module. '
+                        'This makes results impossible to replay, which '
+                        'prevents Hypothesis from working correctly. '
+                        'If you want to use methods from random, use '
+                        'randoms() from hypothesis.strategies to get an '
+                        'instance of Random you can use. Alternatively, you '
+                        'can use the random_module() strategy to explicitly '
+                        'seed the random module.'
+                    )
+
             last_exception = [None]
             repr_for_last_exception = [None]
 
             def is_template_example(xs):
+                if perform_health_check and not warned_random[0]:
+                    initial_state = getglobalrandomstate()
                 record_repr = [None]
                 try:
-                    test_runner(reify_and_execute(
+                    result = test_runner(reify_and_execute(
                         search_strategy, xs, test,
                         record_repr=record_repr,
                     ))
+                    if result is not None:
+                        note_deprecation((
+                            'Tests run under @given should return None, but '
+                            '%s returned %r instead.'
+                            'In Hypothesis 2.0 this will become an error.'
+                        ) % (test.__name__, result), settings)
                     return False
+                except HypothesisDeprecationWarning:
+                    raise
                 except UnsatisfiedAssumption as e:
                     raise e
                 except Exception as e:
@@ -564,7 +702,21 @@ def given(*generator_arguments, **generator_kwargs):
                     repr_for_last_exception[0] = record_repr[0]
                     verbose_report(last_exception[0])
                     return True
-
+                finally:
+                    if (
+                        not warned_random[0] and
+                        perform_health_check and
+                        getglobalrandomstate() != initial_state
+                    ):
+                        warned_random[0] = True
+                        fail_health_check(
+                            'Your test used the global random module. '
+                            'This is unlikely to work correctly. You should '
+                            'consider using the randoms() strategy from '
+                            'hypothesis.strategies instead. Alternatively, '
+                            'you can use the random_module() strategy to '
+                            'explicitly seed the random module.'
+                        )
             is_template_example.__name__ = test.__name__
             is_template_example.__qualname__ = qualname(test)
 
@@ -572,7 +724,7 @@ def given(*generator_arguments, **generator_kwargs):
             try:
                 falsifying_template = best_satisfying_template(
                     search_strategy, random, is_template_example,
-                    settings, storage
+                    settings, storage, start_time=start,
                 )
             except NoSuchExample:
                 return

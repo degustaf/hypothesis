@@ -89,9 +89,10 @@ if PY3:
     def escape_unicode_characters(s):
         return codecs.encode(s, 'unicode_escape').decode('ascii')
 
-    def quiet_raise(exc):
-        from hypothesis.internal.compat3 import quiet_raise as q
-        q(exc)
+    exec("""
+def quiet_raise(exc):
+    raise exc from None
+""")
 else:
     VALID_PYTHON_IDENTIFIER = re.compile(
         r"^[a-zA-Z_][a-zA-Z0-9_]*$"
@@ -102,10 +103,17 @@ else:
 
     def unicode_safe_repr(x):
         try:
-            r = type(x).__repr__(x)
-        except TypeError:
-            # Workaround for https://bitbucket.org/pypy/pypy/issues/2083/
             r = repr(x)
+        except UnicodeEncodeError:
+            r = type(x).__repr__(x)
+            from hypothesis.settings import note_deprecation
+            note_deprecation((
+                'Type %s has a broken repr implementation. Calling __repr__ '
+                'on it returned %r, which cannot be represented as ASCII '
+                'text. This is not permitted in Python 2. Hypothesis is '
+                'currently working around this, but will stop doing so in '
+                'Hypothesis 2.0. You should fix your code.'
+            ) % (type(x).__name__, r))
         if isinstance(r, unicode):
             return r
         else:

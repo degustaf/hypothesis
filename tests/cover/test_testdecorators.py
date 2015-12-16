@@ -16,7 +16,6 @@
 
 from __future__ import division, print_function, absolute_import
 
-import math
 import time
 import string
 import inspect
@@ -26,11 +25,9 @@ from random import Random
 from collections import namedtuple
 
 import hypothesis.reporting as reporting
-from flaky import flaky
 from hypothesis import note, given, assume, Settings, Verbosity
 from hypothesis.errors import Flaky, Unsatisfiable, InvalidArgument
 from tests.common.utils import fails, raises, fails_with, capture_out
-from hypothesis.internal import debug
 from hypothesis.strategies import just, sets, text, lists, binary, \
     builds, floats, one_of, booleans, integers, frozensets, sampled_from
 from hypothesis.internal.compat import text_type
@@ -286,6 +283,18 @@ def test_errors_even_if_does_not_error_on_final_call():
         rude()
 
 
+def test_does_not_attempt_to_shrink_flaky_errors():
+    values = []
+
+    @given(integers())
+    def test(x):
+        values.append(x)
+        assert len(values) != 1
+    with raises(Flaky):
+        test()
+    assert len(set(values)) == 1
+
+
 class DifferentReprEachTime(object):
     counter = 0
 
@@ -350,7 +359,7 @@ def test_does_not_print_on_success():
     with Settings(verbosity=Verbosity.normal):
         @given(integers())
         def test_is_an_int(x):
-            return True
+            return
 
         with capture_out() as out:
             test_is_an_int()
@@ -513,7 +522,9 @@ def test_named_tuples_are_of_right_type(litter):
 
 
 @fails_with(AttributeError)
-@given(integers().map(lambda x: x.nope))
+@given(integers().map(lambda x: x.nope), settings=Settings(
+    perform_health_check=False,
+))
 def test_fails_in_reify(x):
     pass
 
@@ -567,23 +578,6 @@ def test_should_not_count_duplicates_towards_max_examples():
         seen.add(x)
     test_i_see_you()
     assert len(seen) == 9
-
-
-@flaky(max_runs=10, min_passes=1)
-def test_can_timeout_during_an_unsuccessful_simplify():
-    record = []
-
-    @debug.timeout(3)
-    @given(lists(floats()), settings=Settings(timeout=1))
-    def first_bad_float_list(xs):
-        if record:
-            assert record[0] != xs
-        elif len(xs) >= 10 and any(math.isinf(x) for x in xs):
-            record.append(xs)
-            assert False
-
-    with raises(AssertionError):
-        first_bad_float_list()
 
 
 def nameless_const(x):

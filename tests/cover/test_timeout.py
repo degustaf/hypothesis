@@ -16,5 +16,28 @@
 
 from __future__ import division, print_function, absolute_import
 
-__version_info__ = (1, 17, 0)
-__version__ = u'.'.join(map(str, __version_info__))
+import math
+
+from pytest import raises
+
+from flaky import flaky
+from hypothesis import given, Settings
+from hypothesis.internal import debug
+from hypothesis.strategies import lists, floats
+
+
+@flaky(max_runs=10, min_passes=1)
+def test_can_timeout_during_an_unsuccessful_simplify():
+    record = []
+
+    @debug.timeout(3)
+    @given(lists(floats()), settings=Settings(timeout=1))
+    def first_bad_float_list(xs):
+        if record:
+            assert record[0] != xs
+        elif len(xs) >= 10 and any(math.isinf(x) for x in xs):
+            record.append(xs)
+            assert False
+
+    with raises(AssertionError):
+        first_bad_float_list()

@@ -60,6 +60,7 @@ of the things you need to know to begin testing your code with it.
   settings
   data
   extras
+  healthchecks
   database
   stateful
   supported
@@ -72,3 +73,4 @@ of the things you need to know to begin testing your code with it.
   changes
   development
   support
+  packaging

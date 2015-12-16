@@ -29,7 +29,7 @@ import warnings
 import threading
 from collections import namedtuple
 
-from hypothesis.errors import InvalidArgument
+from hypothesis.errors import InvalidArgument, HypothesisDeprecationWarning
 from hypothesis.utils.conventions import not_set
 from hypothesis.utils.dynamicvariables import DynamicVariable
 
@@ -415,7 +415,12 @@ Settings.define_setting(
     default=os.getenv(u'HYPOTHESIS_STRICT_MODE') == u'true',
     description="""
 If set to True, anything that would cause Hypothesis to issue a warning will
-instead raise an error.
+instead raise an error. Note that new warnings may be added at any time, so
+running with strict set to True means that new Hypothesis releases may validly
+break your code.
+
+You can enable this setting temporarily by setting the HYPOTHESIS_STRICT_MODE
+environment variable to the string 'true'.
 """
 )
 
@@ -509,20 +514,22 @@ Settings.define_setting(
     description=u'Average length of lists to use'
 )
 
+Settings.define_setting(
+    u'perform_health_check',
+    default=True,
+    description=u"""
+If set to True, Hypothesis will run a preliminary health check before
+attempting to actually execute your test.
+"""
+)
+
 Settings.lock_further_definitions()
 
 Settings.register_profile('default', Settings())
 Settings.load_profile('default')
 
 
-class HypothesisDeprecationWarning(DeprecationWarning):
-    pass
-
-
-warnings.simplefilter(u'once', HypothesisDeprecationWarning)
-
-
-def note_deprecation(message, settings):
+def note_deprecation(message, settings=None):
     # If *either* self or the current default are non-strict
     # then this should be an error. This is to handle e.g. the case
     # where defining a new setting while non-strict updates a

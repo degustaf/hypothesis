@@ -26,6 +26,9 @@ examples of usage are `available at readthedocs <https://hypothesis.readthedocs.
 If you want to talk to people about using Hypothesis, `we have both an IRC channel
 and a mailing list <https://hypothesis.readthedocs.org/en/latest/community.html>`_.
 
+If you want to receive occasional updates about Hypothesis, including useful tips and tricks, there's a
+`TinyLetter mailing list to sign up for them <http://tinyletter.com/DRMacIver/>`_.
+
 If you want to contribute to Hypothesis, `instructions are here <https://github.com/DRMacIver/hypothesis/blob/master/CONTRIBUTING.rst>`_.
 
 If you're looking for inspiration for writing your own QuickCheck clone,
@@ -34,6 +37,7 @@ If you're looking for inspiration for writing your own QuickCheck clone,
 If you want to hear from people who are already using Hypothesis, some of them `have written
 about it <https://hypothesis.readthedocs.org/en/latest/endorsements.html>`_.
 
+If you want to create a downstream package of Hypothesis, please read `these guidelines for packagers <http://hypothesis.readthedocs.org/en/latest/packaging.html>`_
 
 -------------------
 Ongoing Development

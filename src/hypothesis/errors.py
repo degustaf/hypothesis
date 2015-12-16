@@ -16,6 +16,8 @@
 
 from __future__ import division, print_function, absolute_import
 
+import warnings
+
 
 class HypothesisException(Exception):
 
@@ -162,3 +164,15 @@ class AbnormalExit(HypothesisException):
 
     """Raised when a test running in a child process exits without returning or
     raising an exception."""
+
+
+class FailedHealthCheck(HypothesisException, Warning):
+    """Raised when a test fails a preliminary healthcheck that occurs before
+    execution."""
+
+
+class HypothesisDeprecationWarning(HypothesisException, DeprecationWarning):
+    pass
+
+
+warnings.simplefilter(u'once', HypothesisDeprecationWarning)

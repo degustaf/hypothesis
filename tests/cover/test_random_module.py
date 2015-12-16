@@ -14,10 +14,32 @@
 #
 # END HEADER
 
-# pylint: skip-file
-
 from __future__ import division, print_function, absolute_import
 
+import pytest
 
-def quiet_raise(exc):
-    raise exc from None
+import hypothesis.strategies as st
+from hypothesis import given, reporting
+from tests.common.utils import capture_out
+
+
+def test_can_seed_random():
+    with capture_out() as out:
+        with reporting.with_reporter(reporting.default):
+            with pytest.raises(AssertionError):
+                @given(st.random_module())
+                def test(r):
+                    assert False
+                test()
+    assert 'random.seed(0)' in out.getvalue()
+
+
+@given(st.random_module(), st.random_module())
+def test_seed_random_twice(r, r2):
+    assert repr(r) == repr(r2)
+
+
+@given(st.random_module())
+def test_does_not_fail_health_check_if_randomness_is_used(r):
+    import random
+    random.getrandbits(128)
